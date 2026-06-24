@@ -10,10 +10,21 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+from pathlib import Path
+
+from crtn_stations import (
+    load_crtn_stations,
+    nearest_crtn_stations,
+)
+
 import serial
 from flask import Flask, jsonify, render_template_string
 from pyubx2 import NMEA_PROTOCOL, RTCM3_PROTOCOL, UBX_PROTOCOL, UBXReader
 
+PROJECT_DIR = Path(__file__).resolve().parent
+CRTN_CSV_PATH = PROJECT_DIR / "crtn_mountpoints_2026-06-02.csv"
+
+crtn_stations = load_crtn_stations(CRTN_CSV_PATH)
 
 app = Flask(__name__)
 
@@ -36,6 +47,14 @@ gps_state: dict[str, Any] = {
     "course_deg": None,
     "correction_age_s": None,
     "bytes_from_receiver": 0,
+    "selected_station_code": None,
+    "selected_station_name": None,
+    "selected_mountpoint": None,
+    "selected_station_distance_km": None,
+    "selected_ntrip_host": None,
+    "selected_ntrip_port": None,
+    "station_candidates": [],
+
 
     # NTRIP placeholders for the next step.
     "ntrip_connected": False,
@@ -46,6 +65,8 @@ gps_state: dict[str, Any] = {
 
     "error": None,
 }
+
+station_selected = False
 
 position_history: deque[dict[str, Any]] = deque(maxlen=300)
 
@@ -59,6 +80,58 @@ FIX_NAMES = {
     5: "RTK float",
     6: "Dead reckoning",
 }
+
+
+def select_nearest_crtn_station(
+    latitude: float,
+    longitude: float,
+) -> bool:
+    candidates = nearest_crtn_stations(
+        rover_latitude=latitude,
+        rover_longitude=longitude,
+        stations=crtn_stations,
+        limit=5,
+        max_distance_km=100.0,
+    )
+
+    if not candidates:
+        with state_lock:
+            gps_state["error"] = (
+                "No suitable CRTN station found within 100 km."
+            )
+        return False
+
+    selected = candidates[0]
+
+    with state_lock:
+        gps_state.update(
+            {
+                "selected_station_code": selected.code,
+                "selected_station_name": selected.station_name,
+                "selected_mountpoint": selected.mountpoint,
+                "selected_station_distance_km": round(
+                    selected.distance_km,
+                    2,
+                ),
+                "selected_ntrip_host": selected.host,
+                "selected_ntrip_port": selected.port,
+                "station_candidates": [
+                    {
+                        "code": station.code,
+                        "name": station.station_name,
+                        "distance_km": round(
+                            station.distance_km,
+                            2,
+                        ),
+                        "mountpoint": station.mountpoint,
+                        "host": station.host,
+                        "port": station.port,
+                    }
+                    for station in candidates
+                ],
+            }
+        )
+    return True
 
 
 def find_receiver() -> str:
@@ -119,6 +192,7 @@ def signed_coordinate(value: Any, direction: Any) -> float | None:
 
 
 def update_from_gga(message: Any) -> None:
+    global station_selected
     latitude = signed_coordinate(
         getattr(message, "lat", None),
         getattr(message, "NS", ""),
@@ -171,6 +245,17 @@ def update_from_gga(message: Any) -> None:
                     "fix": quality,
                 }
             )
+
+    if (
+       not station_selected
+       and quality > 0
+       and latitude is not None
+       and longitude is not None
+    ):
+       station_selected = select_nearest_crtn_station(
+           latitude,
+           longitude,
+       )
 
 
 def update_from_rmc(message: Any) -> None:
@@ -408,6 +493,26 @@ DASHBOARD_HTML = r"""
             background: #202a34;
         }
 
+	.card-detail {
+	    margin-top: 7px;
+	    color: #91a3b5;
+	    font-size: 13px;
+	    line-height: 1.4;
+	    overflow-wrap: anywhere;
+	}
+
+	.ntrip-online {
+	    color: #49d17f;
+	}
+
+	.ntrip-offline {
+    	    color: #e66b65;
+	}
+
+	.ntrip-waiting {
+	    color: #f0c75e;
+	}
+
         .fix-0 {
             color: #e66b65;
         }
@@ -506,9 +611,20 @@ DASHBOARD_HTML = r"""
         </div>
 
         <div class="card">
-            <div class="label">NTRIP</div>
-            <div id="ntrip" class="value small-value">Not connected</div>
-        </div>
+    	    <div class="label">Selected mountpoint</div>
+    	    <div id="mountpoint" class="value small-value">
+        	Waiting for GPS fix
+    	    </div>
+    	    <div id="mountpoint-details" class="card-detail"></div>
+	</div>
+
+        <div class="card">
+            <div class="label">NTRIP connection</div>
+            <div id="ntrip" class="value small-value ntrip-offline">
+               Not connected
+    	</div>
+      	    <div id="ntrip-details" class="card-detail"></div>
+	</div>
 
         <div class="card">
             <div class="label">RTCM received</div>
@@ -662,12 +778,85 @@ DASHBOARD_HTML = r"""
                     : `${data.correction_age_s} s`
             );
 
-            text(
-                "ntrip",
-                data.ntrip_connected
-                    ? `Connected: ${data.ntrip_mountpoint}`
-                    : "Not connected"
+            const mountpointElement =
+                document.getElementById("mountpoint");
+
+            const mountpointDetailsElement =
+                document.getElementById("mountpoint-details");
+
+            if (data.selected_mountpoint) {
+                mountpointElement.textContent =
+                    data.selected_mountpoint;
+
+                const stationName =
+                    data.selected_station_name || "Unknown station";
+
+                const stationCode =
+                    data.selected_station_code
+                        ? ` (${data.selected_station_code})`
+                        : "";
+
+                const distance =
+                    data.selected_station_distance_km !== null
+                    && data.selected_station_distance_km !== undefined
+                        ? `${Number(
+                            data.selected_station_distance_km
+                          ).toFixed(2)} km away`
+                        : "Distance unavailable";
+
+                const caster =
+                    data.selected_ntrip_host
+                    && data.selected_ntrip_port
+                        ? `${data.selected_ntrip_host}:`
+                          + `${data.selected_ntrip_port}`
+                        : "Caster unavailable";
+
+                mountpointDetailsElement.textContent =
+                    `${stationName}${stationCode} · `
+                    + `${distance} · ${caster}`;
+            } else {
+                mountpointElement.textContent =
+                    data.fix_quality > 0
+                        ? "No suitable station"
+                        : "Waiting for GPS fix";
+
+                mountpointDetailsElement.textContent = "";
+            }
+
+            const ntripElement =
+                document.getElementById("ntrip");
+
+            const ntripDetailsElement =
+                document.getElementById("ntrip-details");
+
+            ntripElement.classList.remove(
+                "ntrip-online",
+                "ntrip-offline",
+                "ntrip-waiting"
             );
+
+            if (data.ntrip_connected) {
+                ntripElement.textContent = "Connected";
+                ntripElement.classList.add("ntrip-online");
+
+                ntripDetailsElement.textContent =
+                    data.ntrip_mountpoint
+                        ? `Streaming ${data.ntrip_mountpoint}`
+                        : "Receiving correction data";
+            } else if (data.selected_mountpoint) {
+                ntripElement.textContent = "Selected, not connected";
+                ntripElement.classList.add("ntrip-waiting");
+
+                ntripDetailsElement.textContent =
+                    data.ntrip_error
+                        || "NTRIP client has not connected";
+            } else {
+                ntripElement.textContent = "Not connected";
+                ntripElement.classList.add("ntrip-offline");
+
+                ntripDetailsElement.textContent =
+                    "Waiting for station selection";
+            }
 
             text(
                 "rtcm-received",
