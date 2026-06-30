@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets and environment files
+.env
+*.env
+credentials*
+secrets*
+
+# Logs and runtime files
+*.log
+*.pid
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Temporary files
+*.swp
+*.tmp

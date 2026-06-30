@@ -6,6 +6,8 @@ import argparse
 import glob
 import threading
 import time
+import os
+
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +22,8 @@ from crtn_stations import (
 import serial
 from flask import Flask, jsonify, render_template_string
 from pyubx2 import NMEA_PROTOCOL, RTCM3_PROTOCOL, UBX_PROTOCOL, UBXReader
+
+from ntrip_client import NtripClient
 
 PROJECT_DIR = Path(__file__).resolve().parent
 CRTN_CSV_PATH = PROJECT_DIR / "crtn_mountpoints_2026-06-02.csv"
@@ -54,7 +58,15 @@ gps_state: dict[str, Any] = {
     "selected_ntrip_host": None,
     "selected_ntrip_port": None,
     "station_candidates": [],
+    "last_rtcm_utc": None,
 
+    "horizontal_accuracy_m": None,
+    "vertical_accuracy_m": None,
+    "speed_accuracy_mps": None,
+    "heading_accuracy_deg": None,
+    "position_dop": None,
+    "carrier_solution": None,
+    "ubx_nav_pvt_received": False,
 
     # NTRIP placeholders for the next step.
     "ntrip_connected": False,
@@ -179,6 +191,72 @@ def safe_int(value: Any) -> int | None:
         return None
 
 
+def update_from_nav_pvt(message: Any) -> None:
+    """
+    Update accuracy and carrier-solution data from UBX-NAV-PVT.
+
+    pyubx2 normally scales these fields into engineering units:
+    hAcc/vAcc in millimeters, sAcc in millimeters per second,
+    headAcc in 1e-5 degrees, and pDOP in 0.01 units may be exposed
+    either scaled or raw depending on library/message definition.
+    The conversions below handle the standard raw UBX units.
+    """
+
+    h_acc_raw = safe_float(getattr(message, "hAcc", None))
+    v_acc_raw = safe_float(getattr(message, "vAcc", None))
+    s_acc_raw = safe_float(getattr(message, "sAcc", None))
+    head_acc_raw = safe_float(getattr(message, "headAcc", None))
+    p_dop_raw = safe_float(getattr(message, "pDOP", None))
+    carr_soln_raw = safe_int(getattr(message, "carrSoln", None))
+
+    horizontal_accuracy_m = (
+        h_acc_raw / 1000.0
+        if h_acc_raw is not None
+        else None
+    )
+
+    vertical_accuracy_m = (
+        v_acc_raw / 1000.0
+        if v_acc_raw is not None
+        else None
+    )
+
+    speed_accuracy_mps = (
+        s_acc_raw / 1000.0
+        if s_acc_raw is not None
+        else None
+    )
+
+    heading_accuracy_deg = head_acc_raw
+    position_dop = p_dop_raw
+
+    carrier_names = {
+        0: "None",
+        1: "RTK float",
+        2: "RTK fixed",
+    }
+
+    with state_lock:
+        gps_state.update(
+            {
+                "horizontal_accuracy_m": horizontal_accuracy_m,
+                "vertical_accuracy_m": vertical_accuracy_m,
+                "speed_accuracy_mps": speed_accuracy_mps,
+                "heading_accuracy_deg": heading_accuracy_deg,
+                "position_dop": position_dop,
+                "carrier_solution": carrier_names.get(
+                    carr_soln_raw,
+                    (
+                        f"Unknown ({carr_soln_raw})"
+                        if carr_soln_raw is not None
+                        else None
+                    ),
+                ),
+                "ubx_nav_pvt_received": True,
+            }
+        )
+
+
 def signed_coordinate(value: Any, direction: Any) -> float | None:
     coordinate = safe_float(value)
 
@@ -278,6 +356,8 @@ def update_from_rmc(message: Any) -> None:
 
 def serial_reader(port: str, baud: int) -> None:
     while True:
+        ntrip_client = None
+
         try:
             with serial.Serial(
                 port=port,
@@ -300,23 +380,50 @@ def serial_reader(port: str, baud: int) -> None:
                     quitonerror=0,
                 )
 
-                while True:
-                    raw, message = reader.read()
+                username = os.environ.get("CRTN_USER")
+                password = os.environ.get("CRTN_PASSWORD")
 
-                    if raw:
-                        with state_lock:
-                            gps_state["bytes_from_receiver"] += len(raw)
+                if username and password:
+                    ntrip_client = NtripClient(
+                        serial_stream=stream,
+                        shared_state=gps_state,
+                        state_lock=state_lock,
+                        username=username,
+                        password=password,
+                    )
+                    ntrip_client.start()
 
-                    if message is None:
-                        continue
+                try:
+                    while True:
+                        raw, message = reader.read()
 
-                    identity = getattr(message, "identity", "")
+                        if raw:
+                            with state_lock:
+                                gps_state[
+                                    "bytes_from_receiver"
+                                ] += len(raw)
 
-                    if identity.endswith("GGA"):
-                        update_from_gga(message)
+                        if message is None:
+                            continue
 
-                    elif identity.endswith("RMC"):
-                        update_from_rmc(message)
+                        identity = getattr(
+                            message,
+                            "identity",
+                            "",
+                        )
+
+                        if identity == "NAV-PVT":
+                            update_from_nav_pvt(message)
+
+                        elif identity.endswith("GGA"):
+                            update_from_gga(message)
+
+                        elif identity.endswith("RMC"):
+                            update_from_rmc(message)
+
+                finally:
+                    if ntrip_client is not None:
+                        ntrip_client.stop()
 
         except Exception as exc:
             with state_lock:
@@ -619,6 +726,37 @@ DASHBOARD_HTML = r"""
 	</div>
 
         <div class="card">
+            <div class="label">Horizontal accuracy</div>
+            <div id="horizontal-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Vertical accuracy</div>
+            <div id="vertical-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Speed accuracy</div>
+            <div id="speed-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Heading accuracy</div>
+            <div id="heading-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Position DOP</div>
+            <div id="position-dop" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Carrier solution</div>
+            <div id="carrier-solution" class="value small-value">—</div>
+        </div>
+
+
+        <div class="card">
             <div class="label">NTRIP connection</div>
             <div id="ntrip" class="value small-value ntrip-offline">
                Not connected
@@ -771,15 +909,71 @@ DASHBOARD_HTML = r"""
                 numberOrDash(data.longitude, 9)
             );
 
-            text(
-                "correction-age",
-                data.correction_age_s === null
-                    ? "—"
-                    : `${data.correction_age_s} s`
-            );
 
-            const mountpointElement =
-                document.getElementById("mountpoint");
+
+           text(
+    "correction-age",
+    data.correction_age_s === null
+        ? "—"
+        : `${data.correction_age_s} s`
+);
+
+text(
+    "horizontal-accuracy",
+    data.horizontal_accuracy_m === null
+        ? "—"
+        : `${Number(
+            data.horizontal_accuracy_m
+          ).toFixed(3)} m`
+);
+
+text(
+    "vertical-accuracy",
+    data.vertical_accuracy_m === null
+        ? "—"
+        : `${Number(
+            data.vertical_accuracy_m
+          ).toFixed(3)} m`
+);
+
+text(
+    "speed-accuracy",
+    data.speed_accuracy_mps === null
+        ? "—"
+        : `${Number(
+            data.speed_accuracy_mps
+          ).toFixed(3)} m/s`
+);
+
+
+text(
+    "heading-accuracy",
+    data.heading_accuracy_deg === null
+    || data.speed_mps === null
+    || data.speed_mps < 0.5
+        ? "N/A stationary"
+        : `${Number(
+            data.heading_accuracy_deg
+          ).toFixed(2)}°`
+);
+
+text(
+    "position-dop",
+    numberOrDash(data.position_dop, 2)
+);
+
+text(
+    "carrier-solution",
+    data.carrier_solution || "—"
+);
+
+const mountpointElement =
+    document.getElementById("mountpoint");
+
+
+
+
+
 
             const mountpointDetailsElement =
                 document.getElementById("mountpoint-details");
