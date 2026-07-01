@@ -26,7 +26,7 @@ from pyubx2 import NMEA_PROTOCOL, RTCM3_PROTOCOL, UBX_PROTOCOL, UBXReader
 from ntrip_client import NtripClient
 
 PROJECT_DIR = Path(__file__).resolve().parent
-CRTN_CSV_PATH = PROJECT_DIR / "crtn_mountpoints_2026-06-02.csv"
+CRTN_CSV_PATH = PROJECT_DIR / "crtn_mountpoint_list.csv"
 
 crtn_stations = load_crtn_stations(CRTN_CSV_PATH)
 
