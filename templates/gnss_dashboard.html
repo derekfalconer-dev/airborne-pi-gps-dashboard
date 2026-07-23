@@ -1,0 +1,630 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>ZED-F9P Dashboard</title>
+
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    >
+
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family:
+                system-ui,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        body {
+            margin: 0;
+            background: #10151c;
+            color: #eef3f8;
+        }
+
+        header {
+            padding: 18px 24px;
+            background: #17202a;
+            border-bottom: 1px solid #2c3947;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        header p {
+            margin: 4px 0 0;
+            color: #9fb0c1;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: auto;
+            padding: 20px;
+        }
+
+        .status-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 18px;
+            padding: 14px 18px;
+            border-radius: 10px;
+            background: #17202a;
+            border: 1px solid #2c3947;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background: #d9534f;
+        }
+
+        .connected {
+            background: #36c275;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .card {
+            background: #17202a;
+            border: 1px solid #2c3947;
+            border-radius: 10px;
+            padding: 16px;
+        }
+
+        .label {
+            color: #91a3b5;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .value {
+            margin-top: 7px;
+            font-size: 24px;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .small-value {
+            font-size: 17px;
+        }
+
+        .map-card {
+            background: #17202a;
+            border: 1px solid #2c3947;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .map-header {
+            padding: 14px 16px;
+        }
+
+        #map {
+            height: 500px;
+            background: #202a34;
+        }
+
+	.card-detail {
+	    margin-top: 7px;
+	    color: #91a3b5;
+	    font-size: 13px;
+	    line-height: 1.4;
+	    overflow-wrap: anywhere;
+	}
+
+	.ntrip-online {
+	    color: #49d17f;
+	}
+
+	.ntrip-offline {
+    	    color: #e66b65;
+	}
+
+	.ntrip-waiting {
+	    color: #f0c75e;
+	}
+
+        .fix-0 {
+            color: #e66b65;
+        }
+
+        .fix-1,
+        .fix-2 {
+            color: #f0c75e;
+        }
+
+        .fix-5 {
+            color: #66b8ff;
+        }
+
+        .fix-4 {
+            color: #49d17f;
+        }
+
+        .error {
+            margin-top: 12px;
+            color: #ff837d;
+            font-family: monospace;
+        }
+
+        @media (max-width: 700px) {
+            #map {
+                height: 360px;
+            }
+
+            .value {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<header>
+    <h1>ZED-F9P GNSS Dashboard</h1>
+    <p>Live receiver and RTK debugging</p>
+</header>
+
+<main>
+    <div class="status-banner">
+        <div>
+            <span id="status-dot" class="status-dot"></span>
+            <strong id="connection">Waiting for receiver</strong>
+        </div>
+
+        <div id="message-age">No messages yet</div>
+    </div>
+
+    <section class="grid">
+        <div class="card">
+            <div class="label">Fix</div>
+            <div id="fix" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Satellites</div>
+            <div id="satellites" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">HDOP</div>
+            <div id="hdop" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Altitude MSL</div>
+            <div id="altitude" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Speed</div>
+            <div id="speed" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Course</div>
+            <div id="course" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Latitude</div>
+            <div id="latitude" class="value small-value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Longitude</div>
+            <div id="longitude" class="value small-value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Correction age</div>
+            <div id="correction-age" class="value">—</div>
+        </div>
+
+        <div class="card">
+    	    <div class="label">Selected mountpoint</div>
+    	    <div id="mountpoint" class="value small-value">
+        	Waiting for GPS fix
+    	    </div>
+    	    <div id="mountpoint-details" class="card-detail"></div>
+	</div>
+
+        <div class="card">
+            <div class="label">Horizontal accuracy</div>
+            <div id="horizontal-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Vertical accuracy</div>
+            <div id="vertical-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Speed accuracy</div>
+            <div id="speed-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Heading accuracy</div>
+            <div id="heading-accuracy" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Position DOP</div>
+            <div id="position-dop" class="value">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Carrier solution</div>
+            <div id="carrier-solution" class="value small-value">—</div>
+        </div>
+
+
+        <div class="card">
+            <div class="label">NTRIP connection</div>
+            <div id="ntrip" class="value small-value ntrip-offline">
+               Not connected
+    	</div>
+      	    <div id="ntrip-details" class="card-detail"></div>
+	</div>
+
+        <div class="card">
+            <div class="label">RTCM received</div>
+            <div id="rtcm-received" class="value small-value">0 bytes</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Receiver data</div>
+            <div id="receiver-bytes" class="value small-value">0 bytes</div>
+        </div>
+    </section>
+
+    <section class="map-card">
+        <div class="map-header">
+            <strong>Position and recent breadcrumb trail</strong>
+            <div id="error" class="error"></div>
+        </div>
+
+        <div id="map"></div>
+    </section>
+</main>
+
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+<script>
+    const map = L.map("map").setView([32.94, -117.02], 14);
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 20,
+            attribution: "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+    const marker = L.circleMarker(
+        [32.94, -117.02],
+        {
+            radius: 8,
+            weight: 3
+        }
+    ).addTo(map);
+
+    const trail = L.polyline([], {
+        weight: 3
+    }).addTo(map);
+
+    let mapCentered = false;
+
+    function text(id, value) {
+        document.getElementById(id).textContent = value;
+    }
+
+    function numberOrDash(value, decimals = 2) {
+        if (value === null || value === undefined) {
+            return "—";
+        }
+
+        return Number(value).toFixed(decimals);
+    }
+
+    function byteCount(bytes) {
+        if (!bytes) {
+            return "0 bytes";
+        }
+
+        if (bytes < 1024) {
+            return `${bytes} bytes`;
+        }
+
+        if (bytes < 1024 * 1024) {
+            return `${(bytes / 1024).toFixed(1)} KB`;
+        }
+
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    async function refresh() {
+        try {
+            const response = await fetch(
+                "/api/status",
+                {cache: "no-store"}
+            );
+
+            const data = await response.json();
+
+            const connected = data.receiver_connected === true;
+
+            text(
+                "connection",
+                connected
+                    ? `Connected: ${data.serial_port}`
+                    : "Receiver disconnected"
+            );
+
+            document
+                .getElementById("status-dot")
+                .classList.toggle("connected", connected);
+
+            if (data.message_age_seconds !== null) {
+                text(
+                    "message-age",
+                    `Last message ${data.message_age_seconds}s ago`
+                );
+            }
+
+            const fix = document.getElementById("fix");
+            fix.textContent = data.fix_name || "—";
+            fix.className = `value fix-${data.fix_quality}`;
+
+            text("satellites", data.satellites ?? "—");
+            text("hdop", numberOrDash(data.hdop, 2));
+
+            text(
+                "altitude",
+                data.altitude_msl_m === null
+                    ? "—"
+                    : `${Number(data.altitude_msl_m).toFixed(2)} m`
+            );
+
+            text(
+                "speed",
+                data.speed_mph === null
+                    ? "—"
+                    : `${Number(data.speed_mph).toFixed(2)} mph`
+            );
+
+            text(
+                "course",
+                data.course_deg === null
+                    ? "—"
+                    : `${Number(data.course_deg).toFixed(1)}°`
+            );
+
+            text(
+                "latitude",
+                numberOrDash(data.latitude, 9)
+            );
+
+            text(
+                "longitude",
+                numberOrDash(data.longitude, 9)
+            );
+
+
+
+           text(
+    "correction-age",
+    data.correction_age_s === null
+        ? "—"
+        : `${data.correction_age_s} s`
+);
+
+text(
+    "horizontal-accuracy",
+    data.horizontal_accuracy_m === null
+        ? "—"
+        : `${Number(
+            data.horizontal_accuracy_m
+          ).toFixed(3)} m`
+);
+
+text(
+    "vertical-accuracy",
+    data.vertical_accuracy_m === null
+        ? "—"
+        : `${Number(
+            data.vertical_accuracy_m
+          ).toFixed(3)} m`
+);
+
+text(
+    "speed-accuracy",
+    data.speed_accuracy_mps === null
+        ? "—"
+        : `${Number(
+            data.speed_accuracy_mps
+          ).toFixed(3)} m/s`
+);
+
+
+text(
+    "heading-accuracy",
+    data.heading_accuracy_deg === null
+    || data.speed_mps === null
+    || data.speed_mps < 0.5
+        ? "N/A stationary"
+        : `${Number(
+            data.heading_accuracy_deg
+          ).toFixed(2)}°`
+);
+
+text(
+    "position-dop",
+    numberOrDash(data.position_dop, 2)
+);
+
+text(
+    "carrier-solution",
+    data.carrier_solution || "—"
+);
+
+const mountpointElement =
+    document.getElementById("mountpoint");
+
+
+
+
+
+
+            const mountpointDetailsElement =
+                document.getElementById("mountpoint-details");
+
+            if (data.selected_mountpoint) {
+                mountpointElement.textContent =
+                    data.selected_mountpoint;
+
+                const stationName =
+                    data.selected_station_name || "Unknown station";
+
+                const stationCode =
+                    data.selected_station_code
+                        ? ` (${data.selected_station_code})`
+                        : "";
+
+                const distance =
+                    data.selected_station_distance_km !== null
+                    && data.selected_station_distance_km !== undefined
+                        ? `${Number(
+                            data.selected_station_distance_km
+                          ).toFixed(2)} km away`
+                        : "Distance unavailable";
+
+                const caster =
+                    data.selected_ntrip_host
+                    && data.selected_ntrip_port
+                        ? `${data.selected_ntrip_host}:`
+                          + `${data.selected_ntrip_port}`
+                        : "Caster unavailable";
+
+                mountpointDetailsElement.textContent =
+                    `${stationName}${stationCode} · `
+                    + `${distance} · ${caster}`;
+            } else {
+                mountpointElement.textContent =
+                    data.fix_quality > 0
+                        ? "No suitable station"
+                        : "Waiting for GPS fix";
+
+                mountpointDetailsElement.textContent = "";
+            }
+
+            const ntripElement =
+                document.getElementById("ntrip");
+
+            const ntripDetailsElement =
+                document.getElementById("ntrip-details");
+
+            ntripElement.classList.remove(
+                "ntrip-online",
+                "ntrip-offline",
+                "ntrip-waiting"
+            );
+
+            if (data.ntrip_connected) {
+                ntripElement.textContent = "Connected";
+                ntripElement.classList.add("ntrip-online");
+
+                ntripDetailsElement.textContent =
+                    data.ntrip_mountpoint
+                        ? `Streaming ${data.ntrip_mountpoint}`
+                        : "Receiving correction data";
+            } else if (data.selected_mountpoint) {
+                ntripElement.textContent = "Selected, not connected";
+                ntripElement.classList.add("ntrip-waiting");
+
+                ntripDetailsElement.textContent =
+                    data.ntrip_error
+                        || "NTRIP client has not connected";
+            } else {
+                ntripElement.textContent = "Not connected";
+                ntripElement.classList.add("ntrip-offline");
+
+                ntripDetailsElement.textContent =
+                    "Waiting for station selection";
+            }
+
+            text(
+                "rtcm-received",
+                byteCount(data.rtcm_bytes_received)
+            );
+
+            text(
+                "receiver-bytes",
+                byteCount(data.bytes_from_receiver)
+            );
+
+            text("error", data.error || data.ntrip_error || "");
+
+            if (
+                data.latitude !== null
+                && data.longitude !== null
+            ) {
+                const point = [
+                    data.latitude,
+                    data.longitude
+                ];
+
+                marker.setLatLng(point);
+
+                if (!mapCentered) {
+                    map.setView(point, 18);
+                    mapCentered = true;
+                }
+            }
+
+            if (Array.isArray(data.history)) {
+                const points = data.history.map(
+                    item => [item.lat, item.lon]
+                );
+
+                trail.setLatLngs(points);
+            }
+
+        } catch (error) {
+            text("connection", "Dashboard API unavailable");
+            text("error", String(error));
+        }
+    }
+
+    refresh();
+    setInterval(refresh, 1000);
+</script>
+</body>
+</html>
