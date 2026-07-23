@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>Airborne Pi</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #0b1118;
+            color: #edf4fb;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding: 18px 24px;
+            background: #111b26;
+            border-bottom: 1px solid #263647;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            letter-spacing: 0.04em;
+        }
+
+        .connection {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #697887;
+        }
+
+        .dot.online {
+            background: #38d27d;
+            box-shadow: 0 0 12px #38d27d;
+        }
+
+        .dot.offline {
+            background: #ef5350;
+            box-shadow: 0 0 12px #ef5350;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 22px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns:
+                repeat(auto-fit, minmax(190px, 1fr));
+            gap: 14px;
+        }
+
+        .card {
+            min-height: 120px;
+            padding: 18px;
+            border: 1px solid #263647;
+            border-radius: 14px;
+            background:
+                linear-gradient(145deg, #162331, #101923);
+            box-shadow: 0 8px 25px rgb(0 0 0 / 18%);
+        }
+
+        .label {
+            color: #8fa3b7;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+        }
+
+        .value {
+            margin-top: 11px;
+            font-size: 1.75rem;
+            font-weight: 750;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .subvalue {
+            margin-top: 7px;
+            color: #a9bac9;
+            font-size: 0.85rem;
+        }
+
+        .armed {
+            color: #ff6262;
+        }
+
+        .disarmed {
+            color: #38d27d;
+        }
+
+        .warning {
+            color: #ffcb66;
+        }
+
+        footer {
+            padding: 20px;
+            color: #74889b;
+            font-size: 0.78rem;
+            text-align: center;
+        }
+
+        @media (max-width: 800px) {
+            .hero {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            main {
+                padding: 12px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<header>
+    <h1>AIRBORNE PI · FLIGHT COMPUTER</h1>
+
+    <div class="connection">
+        <span id="connection-dot" class="dot"></span>
+        <span id="connection-text">Connecting…</span>
+    </div>
+</header>
+
+<main>
+    <section class="hero">
+        <div class="card">
+            <div class="label">Flight Mode</div>
+            <div class="value" id="flight-mode">—</div>
+            <div class="subvalue" id="vehicle-type">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Arm State</div>
+            <div class="value" id="arm-state">—</div>
+            <div class="subvalue" id="system-status">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">GPS</div>
+            <div class="value" id="gps-fix">—</div>
+            <div class="subvalue" id="satellites">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Heading</div>
+            <div class="value" id="heading">—</div>
+            <div class="subvalue">Magnetic / EKF heading</div>
+        </div>
+    </section>
+
+    <section class="grid">
+        <div class="card">
+            <div class="label">Roll</div>
+            <div class="value" id="roll">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Pitch</div>
+            <div class="value" id="pitch">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Yaw</div>
+            <div class="value" id="yaw">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Ground Speed</div>
+            <div class="value" id="groundspeed">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Altitude</div>
+            <div class="value" id="altitude">—</div>
+            <div class="subvalue" id="relative-altitude">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Climb Rate</div>
+            <div class="value" id="climb-rate">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Battery</div>
+            <div class="value" id="battery-voltage">—</div>
+            <div class="subvalue" id="battery-remaining">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Autopilot Load</div>
+            <div class="value" id="autopilot-load">—</div>
+            <div class="subvalue" id="communication-errors">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Position</div>
+            <div class="value" id="position">No position</div>
+            <div class="subvalue" id="accuracy">—</div>
+        </div>
+
+        <div class="card">
+            <div class="label">MAVLink</div>
+            <div class="value" id="message-count">—</div>
+            <div class="subvalue" id="last-message">—</div>
+        </div>
+    </section>
+</main>
+
+<footer id="footer-status">
+    Waiting for flight-controller telemetry…
+</footer>
+
+<script>
+    function numberOrDash(value, decimals = 1, suffix = "") {
+        if (value === null || value === undefined) {
+            return "—";
+        }
+
+        return `${Number(value).toFixed(decimals)}${suffix}`;
+    }
+
+    function setText(id, value) {
+        document.getElementById(id).textContent = value;
+    }
+
+    async function updateDashboard() {
+        try {
+            const response = await fetch(
+                "/api/mavlink/status",
+                { cache: "no-store" }
+            );
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            const dot = document.getElementById("connection-dot");
+            const connectionText =
+                document.getElementById("connection-text");
+
+            dot.className = data.connected
+                ? "dot online"
+                : "dot offline";
+
+            connectionText.textContent = data.connected
+                ? `Pixhawk connected · ${numberOrDash(
+                    data.last_heartbeat_age_s,
+                    1,
+                    " s"
+                )}`
+                : "Pixhawk disconnected";
+
+            setText("flight-mode", data.flight_mode ?? "Unknown");
+            setText(
+                "vehicle-type",
+                `${data.vehicle_type ?? "Unknown"} · ` +
+                `${data.autopilot ?? "Unknown"}`
+            );
+
+            const armState = document.getElementById("arm-state");
+            armState.textContent = data.armed ? "ARMED" : "DISARMED";
+            armState.className = data.armed
+                ? "value armed"
+                : "value disarmed";
+
+            setText("system-status", data.system_status ?? "Unknown");
+            setText("gps-fix", data.gps_fix ?? "No GPS");
+            setText(
+                "satellites",
+                `${data.satellites ?? 0} satellites`
+            );
+
+            setText(
+                "heading",
+                numberOrDash(data.heading_deg, 0, "°")
+            );
+            setText("roll", numberOrDash(data.roll_deg, 1, "°"));
+            setText("pitch", numberOrDash(data.pitch_deg, 1, "°"));
+            setText("yaw", numberOrDash(data.yaw_deg, 1, "°"));
+
+            setText(
+                "groundspeed",
+                numberOrDash(data.groundspeed_mps, 2, " m/s")
+            );
+            setText(
+                "altitude",
+                numberOrDash(data.altitude_m, 2, " m")
+            );
+            setText(
+                "relative-altitude",
+                `Relative: ${numberOrDash(
+                    data.relative_altitude_m,
+                    2,
+                    " m"
+                )}`
+            );
+            setText(
+                "climb-rate",
+                numberOrDash(data.climb_mps, 2, " m/s")
+            );
+
+            setText(
+                "battery-voltage",
+                numberOrDash(data.battery_voltage_v, 2, " V")
+            );
+            setText(
+                "battery-remaining",
+                data.battery_remaining_pct === null
+                    ? "Power module unavailable"
+                    : `${data.battery_remaining_pct}% remaining`
+            );
+
+            setText(
+                "autopilot-load",
+                numberOrDash(data.autopilot_load_pct, 1, "%")
+            );
+            setText(
+                "communication-errors",
+                `${data.communication_errors ?? 0} communication errors`
+            );
+
+            if (
+                data.latitude !== null &&
+                data.longitude !== null
+            ) {
+                setText(
+                    "position",
+                    `${Number(data.latitude).toFixed(7)}, ` +
+                    `${Number(data.longitude).toFixed(7)}`
+                );
+            } else {
+                setText("position", "No position");
+            }
+
+            setText(
+                "accuracy",
+                `H: ${numberOrDash(
+                    data.horizontal_accuracy_m,
+                    3,
+                    " m"
+                )} · V: ${numberOrDash(
+                    data.vertical_accuracy_m,
+                    3,
+                    " m"
+                )}`
+            );
+
+            setText(
+                "message-count",
+                Number(data.message_count ?? 0).toLocaleString()
+            );
+            setText(
+                "last-message",
+                `Last: ${data.last_message_type ?? "none"}`
+            );
+
+            setText(
+                "footer-status",
+                data.last_error
+                    ? `MAVLink error: ${data.last_error}`
+                    : `System ${data.system_id ?? "—"} · ` +
+                      `Component ${data.component_id ?? "—"}`
+            );
+
+        } catch (error) {
+            const dot = document.getElementById("connection-dot");
+            dot.className = "dot offline";
+
+            setText("connection-text", "Dashboard API unavailable");
+            setText("footer-status", error.message);
+        }
+    }
+
+    updateDashboard();
+    setInterval(updateDashboard, 500);
+</script>
+</body>
+</html>
