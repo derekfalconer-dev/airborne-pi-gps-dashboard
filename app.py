@@ -13,12 +13,18 @@ app = Flask(__name__)
 
 @app.route("/")
 def flight_dashboard():
-    return render_template("mavlink_dashboard.html")
+    return render_template(
+        "mavlink_dashboard.html",
+        active_tab="flight",
+    )
 
 
 @app.route("/gnss")
 def gnss_dashboard():
-    return render_template("gnss_dashboard.html")
+    return render_template(
+        "gnss_dashboard.html",
+        active_tab="gnss",
+    )
 
 
 @app.route("/api/mavlink/status")

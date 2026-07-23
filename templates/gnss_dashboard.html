@@ -181,9 +181,12 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='tabs.css') }}">
 </head>
 
 <body>
+    {% include "_tabs.html" %}
+
 <header>
     <h1>ZED-F9P GNSS Dashboard</h1>
     <p>Live receiver and RTK debugging</p>

@@ -1,0 +1,15 @@
+<nav class="app-tabs" aria-label="Airborne Pi dashboards">
+    <a
+        href="{{ url_for('flight_dashboard') }}"
+        class="app-tab {% if active_tab == 'flight' %}active{% endif %}"
+    >
+        Flight
+    </a>
+
+    <a
+        href="{{ url_for('gnss_dashboard') }}"
+        class="app-tab {% if active_tab == 'gnss' %}active{% endif %}"
+    >
+        GNSS / RTK
+    </a>
+</nav>

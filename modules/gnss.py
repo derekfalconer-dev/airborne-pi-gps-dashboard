@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any
 
 import serial
+
 from pyubx2 import (
     NMEA_PROTOCOL,
     RTCM3_PROTOCOL,
     UBX_PROTOCOL,
+    UBXMessage,
     UBXReader,
 )
 
@@ -53,6 +55,9 @@ def initial_gnss_state() -> dict[str, Any]:
     return {
         "service_running": False,
         "receiver_connected": False,
+        "receiver_configured": False,
+        "receiver_config_acknowledged": False,
+        "receiver_config_error": None,
         "serial_port": None,
         "serial_baud": None,
 
@@ -481,6 +486,111 @@ class GnssModule:
         elif identity.endswith("RMC"):
             self._update_from_rmc(message)
 
+    def _configure_receiver(
+        self,
+        stream: serial.Serial,
+    ) -> bool:
+        """
+        Enable the USB protocols and messages required by the
+        dashboard. Configuration is applied to receiver RAM only,
+        so it is repeated whenever the receiver reconnects.
+        """
+
+        message = UBXMessage.config_set(
+            layers=1,
+            transaction=0,
+            cfgData=[
+                ("CFG_USBINPROT_UBX", 1),
+                ("CFG_USBINPROT_NMEA", 1),
+                ("CFG_USBINPROT_RTCM3X", 1),
+
+                ("CFG_USBOUTPROT_UBX", 1),
+                ("CFG_USBOUTPROT_NMEA", 1),
+                ("CFG_USBOUTPROT_RTCM3X", 1),
+
+                ("CFG_MSGOUT_UBX_NAV_PVT_USB", 1),
+                ("CFG_MSGOUT_NMEA_ID_GGA_USB", 1),
+                ("CFG_MSGOUT_NMEA_ID_RMC_USB", 1),
+            ],
+        )
+
+        with self._state_lock:
+            self._state["receiver_configured"] = False
+            self._state["receiver_config_acknowledged"] = False
+            self._state["receiver_config_error"] = None
+
+        try:
+            stream.reset_input_buffer()
+            stream.write(message.serialize())
+            stream.flush()
+
+            ack_reader = UBXReader(
+                stream,
+                protfilter=UBX_PROTOCOL,
+                quitonerror=0,
+            )
+
+            deadline = time.monotonic() + 5.0
+
+            while (
+                time.monotonic() < deadline
+                and not self._stop_event.is_set()
+            ):
+                raw, parsed = ack_reader.read()
+
+                if parsed is None:
+                    continue
+
+                identity = getattr(parsed, "identity", "")
+
+                if identity == "ACK-ACK":
+                    with self._state_lock:
+                        self._state["receiver_configured"] = True
+                        self._state[
+                            "receiver_config_acknowledged"
+                        ] = True
+                        self._state["receiver_config_error"] = None
+
+                    print(
+                        "GNSS receiver acknowledged dashboard "
+                        "message configuration."
+                    )
+                    return True
+
+                if identity == "ACK-NAK":
+                    error = (
+                        "GNSS receiver rejected dashboard "
+                        "message configuration."
+                    )
+
+                    with self._state_lock:
+                        self._state[
+                            "receiver_config_error"
+                        ] = error
+
+                    print(error)
+                    return False
+
+            error = (
+                "No acknowledgement received for GNSS "
+                "message configuration."
+            )
+
+            with self._state_lock:
+                self._state["receiver_config_error"] = error
+
+            print(error)
+            return False
+
+        except Exception as exc:
+            error = f"Could not configure GNSS receiver: {exc}"
+
+            with self._state_lock:
+                self._state["receiver_config_error"] = error
+
+            print(error)
+            return False
+
     def _start_ntrip(
         self,
         stream: serial.Serial,
@@ -532,6 +642,8 @@ class GnssModule:
                     self._state["serial_port"] = port
                     self._state["receiver_connected"] = True
                     self._state["error"] = None
+
+                self._configure_receiver(stream)
 
                 reader = UBXReader(
                     stream,
